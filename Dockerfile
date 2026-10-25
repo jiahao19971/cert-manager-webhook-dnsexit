@@ -1,13 +1,9 @@
-# Stage 1: Build dependencies
-FROM golang:1.26.1-alpine3.23 AS build_deps
-
-RUN apk add --no-cache git
-
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /workspace
+ARG TARGETOS
+ARG TARGETARCH
 
-COPY go.mod .
-COPY go.sum .
-
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Stage 2: Compile the webhook
@@ -15,19 +11,9 @@ FROM build_deps AS build
 
 COPY . .
 
-RUN CGO_ENABLED=0 go build -o dnsexit-webhook -ldflags '-w -extldflags "-static"' .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags '-w -extldflags "-static"' -o ./dnsexit-webhook .
 
-# Stage 3: Minimal final image
-FROM alpine:3.23
-
-# Upgrade all packages to pick up zlib 1.3.2-r0 and future OS patches
-RUN apk upgrade --no-cache \
-    && apk add --no-cache ca-certificates \
-    && addgroup -S appgroup \
-    && adduser -S appuser -G appgroup
-
+FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /workspace/dnsexit-webhook /usr/local/bin/dnsexit-webhook
-
-USER appuser
-
 ENTRYPOINT ["/usr/local/bin/dnsexit-webhook"]
+
